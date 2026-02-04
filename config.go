@@ -10,69 +10,55 @@ import (
 	"github.com/joho/godotenv"
 )
 
-const ERROR_NOT_FOUND = "not found .fileName.env or .config.env"
+var ErrEnvFileNotFound = errors.New("env file not found in default search paths")
 
 type Config struct {
 	loaded bool
 }
 
 func NewConfig(path ...string) (*Config, error) {
-	// 이미 로드된 경우
 	if envPath := os.Getenv("ENV_PATH"); envPath != "" {
 		return &Config{loaded: true}, nil
 	}
 
-	// from path
 	if len(path) > 0 {
-		fullPath, err := filepath.Abs(path[0])
-		if err != nil {
-			return nil, err
-		}
-
-		if err := godotenv.Load(fullPath); err == nil {
-			os.Setenv("ENV_PATH", fullPath)
-			return &Config{loaded: true}, nil
-		}
-
-		return nil, errors.New("not found env file in " + fullPath)
+		return loadFromPath(path[0])
 	}
+
+	return searchAndLoadEnv()
+}
+
+func loadFromPath(path string) (*Config, error) {
+	fullPath, err := filepath.Abs(path)
+	if err != nil {
+		return nil, err
+	}
+	if err := godotenv.Load(fullPath); err != nil {
+		return nil, errors.New("failed to load env file: " + fullPath)
+	}
+	os.Setenv("ENV_PATH", fullPath)
+	return &Config{loaded: true}, nil
+}
+
+func searchAndLoadEnv() (*Config, error) {
+	execPath, _ := os.Executable()
+	fileName := filepath.Base(execPath)
+	wd, _ := os.Getwd()
 
 	// 로딩 순위 - ./.파일명.env -> ./.config.env -> ../.config.env
-	execPath, err := os.Executable()
-	if err != nil {
-		return nil, err
-	}
-
-	fileName := filepath.Base(execPath)
-	//if strings.HasPrefix(fileName, "___go_") {
-	//	return nil, fmt.Errorf("this file name \"%s\" not supported", fileName)
-	//}
-
-	wd, err := os.Getwd()
-	if err != nil {
-		return nil, err
-	}
-	paths := strings.Split(wd, string(os.PathSeparator))
-
-	envFiles := []string{
+	searchPaths := []string{
 		filepath.Join(wd, "."+fileName+".env"),
 		filepath.Join(wd, ".config.env"),
+		filepath.Join(filepath.Dir(wd), ".config.env"),
 	}
 
-	if len(paths) > 1 {
-		envFiles = append(envFiles,
-			filepath.Join(strings.Join(paths[:len(paths)-1], string(os.PathSeparator)), ".config.env"),
-		)
-	}
-
-	for _, file := range envFiles {
-		if err := godotenv.Load(file); err == nil {
-			os.Setenv("ENV_PATH", file)
+	for _, path := range searchPaths {
+		if err := godotenv.Load(path); err == nil {
+			os.Setenv("ENV_PATH", path)
 			return &Config{loaded: true}, nil
 		}
 	}
-
-	return nil, errors.New(ERROR_NOT_FOUND)
+	return nil, ErrEnvFileNotFound
 }
 
 func (e *Config) Get(key string, defaultVal ...string) string {
@@ -88,144 +74,87 @@ func (e *Config) String(key string, defaultVal ...string) string {
 }
 
 func (e *Config) Int(key string, defaultVal ...int) int {
-	result := e.Get(key)
-	if result == "" {
-		if len(defaultVal) > 0 {
-			return defaultVal[0]
-		}
-		return 0
+	val := e.Get(key)
+	if data, err := strconv.Atoi(val); err == nil {
+		return data
 	}
-	data, err := strconv.Atoi(result)
-	if err != nil && len(defaultVal) > 0 {
+	if len(defaultVal) > 0 {
 		return defaultVal[0]
 	}
-	return data
+	return 0
 }
 
 func (e *Config) Int64(key string, defaultVal ...int64) int64 {
-	result := e.Get(key)
-	if result == "" {
-		if len(defaultVal) > 0 {
-			return defaultVal[0]
-		}
-		return 0
+	val := e.Get(key)
+	if data, err := strconv.ParseInt(val, 10, 64); err == nil {
+		return data
 	}
-	data, err := strconv.ParseInt(result, 10, 64)
-	if err != nil && len(defaultVal) > 0 {
+	if len(defaultVal) > 0 {
 		return defaultVal[0]
 	}
-	return data
+	return 0
 }
 
 func (e *Config) Float64(key string, defaultVal ...float64) float64 {
-	result := e.Get(key)
-	if result == "" && len(defaultVal) > 0 {
+	val := e.Get(key)
+	if data, err := strconv.ParseFloat(val, 64); err == nil {
+		return data
+	}
+	if len(defaultVal) > 0 {
 		return defaultVal[0]
 	}
-	data, err := strconv.ParseFloat(result, 64)
-	if err != nil && len(defaultVal) > 0 {
-		return defaultVal[0]
-	}
-	return data
+	return 0
 }
 
 func (e *Config) Bool(key string, defaultVal ...bool) bool {
-	result := e.Get(key)
-	if result == "" {
-		if len(defaultVal) > 0 {
-			return defaultVal[0]
-		}
-		return false
+	val := e.Get(key)
+	if data, err := strconv.ParseBool(val); err == nil {
+		return data
 	}
-	data, err := strconv.ParseBool(result)
-	if err != nil && len(defaultVal) > 0 {
+	if len(defaultVal) > 0 {
 		return defaultVal[0]
 	}
-	return data
+	return false
 }
 
 func (e *Config) SliceString(key string, defaultVal ...[]string) []string {
-	var s []string
-
-	result := e.Get(key)
-	if result == "" {
+	val := e.Get(key)
+	if val == "" {
 		if len(defaultVal) > 0 {
 			return defaultVal[0]
 		}
 		return []string{}
 	}
-
-	parts := strings.Split(result, ",")
-	s = append(s, parts...)
-
-	return s
+	return strings.Split(val, ",")
 }
 
 func (e *Config) SliceInt(key string, defaultVal ...[]int) []int {
-	var s []int
-
-	result := e.Get(key)
-	if result == "" {
-		if len(defaultVal) > 0 {
-			return defaultVal[0]
-		}
-		return []int{}
-	}
-
-	parts := strings.Split(result, ",")
-	for _, part := range parts {
-		val, err := strconv.Atoi(part)
-		if err != nil {
-			return []int{}
-		}
-		s = append(s, val)
-	}
-
-	return s
+	return parseSlice(e.Get(key), strconv.Atoi, defaultVal...)
 }
 
 func (e *Config) SliceInt64(key string, defaultVal ...[]int64) []int64 {
-	var s []int64
-
-	result := e.Get(key)
-	if result == "" {
-		if len(defaultVal) > 0 {
-			return defaultVal[0]
-		}
-		return []int64{}
-	}
-
-	parts := strings.Split(result, ",")
-	for _, part := range parts {
-		val, err := strconv.ParseInt(part, 10, 64)
-		if err != nil {
-			return []int64{}
-		}
-		s = append(s, val)
-	}
-
-	return s
+	return parseSlice(e.Get(key), func(s string) (int64, error) { return strconv.ParseInt(s, 10, 64) }, defaultVal...)
 }
 
 func (e *Config) SliceFloat64(key string, defaultVal ...[]float64) []float64 {
-	var s []float64
+	return parseSlice(e.Get(key), func(s string) (float64, error) { return strconv.ParseFloat(s, 64) }, defaultVal...)
+}
 
-	result := e.Get(key)
-	if result == "" {
+func parseSlice[T any](raw string, parser func(string) (T, error), defaultVal ...[]T) []T {
+	if raw == "" {
 		if len(defaultVal) > 0 {
 			return defaultVal[0]
 		}
-		return []float64{}
+		return []T{}
 	}
-
-	parts := strings.Split(result, ",")
-	for _, part := range parts {
-		val, err := strconv.ParseFloat(part, 64)
-		if err != nil {
-			return []float64{}
+	parts := strings.Split(raw, ",")
+	res := make([]T, 0, len(parts))
+	for _, p := range parts {
+		if val, err := parser(strings.TrimSpace(p)); err == nil {
+			res = append(res, val)
+		} else {
+			return []T{} // 파싱 실패 시 빈 슬라이스 반환 (기존 로직 유지)
 		}
-		s = append(s, val)
 	}
-
-	return s
+	return res
 }

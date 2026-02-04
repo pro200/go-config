@@ -12,5 +12,6 @@ func main() {
 		panic(err)
 	}
 
-	fmt.Println(cfg.String("STRING"))
+	result := cfg.SliceString("SLICE", []string{"a", "b"})
+	fmt.Println(result)
 }
