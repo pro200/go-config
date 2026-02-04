@@ -125,7 +125,12 @@ func (e *Config) SliceString(key string, defaultVal ...[]string) []string {
 		}
 		return []string{}
 	}
-	return strings.Split(val, ",")
+	slice := strings.Split(val, ",")
+	for idx, val := range slice {
+		slice[idx] = strings.TrimSpace(val)
+	}
+
+	return slice
 }
 
 func (e *Config) SliceInt(key string, defaultVal ...[]int) []int {
