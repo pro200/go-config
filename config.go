@@ -16,7 +16,7 @@ type Config struct {
 	loaded bool
 }
 
-func NewConfig(path ...string) (*Config, error) {
+func New(path ...string) (*Config, error) {
 	if envPath := os.Getenv("ENV_PATH"); envPath != "" {
 		return &Config{loaded: true}, nil
 	}

@@ -7,7 +7,7 @@ import (
 )
 
 func TestEnv(t *testing.T) {
-	cfg, err := config.NewConfig()
+	cfg, err := config.New()
 	if err != nil {
 		t.Error("env load error:", err)
 		return
